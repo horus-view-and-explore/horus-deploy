@@ -1,0 +1,4 @@
+click
+pyinfra
+tabulate
+zeroconf

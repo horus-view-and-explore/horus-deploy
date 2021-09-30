@@ -1,0 +1,7 @@
+*.egg-info
+.coverage
+/dist
+/env
+/htmlcov
+/pyinfra-debug.log
+__pycache__
