@@ -18,33 +18,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from pyinfra import host
-from pyinfra.api import OperationError
 from pyinfra.operations import server
 
 METADATA = {
-    "name": "Mender",
+    "name": "Mender commit",
     "description": (
-        "Install a Mender artifact and reboot. Committing the installation "
-        "should done manually using the mender_commit deploy script, after "
-        "verifying the device functions correctly. A rollback is done by "
-        "rebooting the device, which can be done with the reboot deploy script."
-        "The path to the artifact can either be a local file path on the device "
-        "or a HTTP(S) URL."
+        "Commit Mender artifact installation. Only do this after verifying "
+        "the device functions correctly."
     ),
-    "parameters": {
-        "install": "File path or URL to mender artifact.",
-    },
 }
-
-
-if not host.data.install:
-    raise OperationError("install argument not given")
 
 server.shell(
     [
-        f"mender install {host.data.install}",
+        "mender commit",
     ]
 )
-
-server.reboot()

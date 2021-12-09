@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="horus_deploy",
-    version="0.1.0",
+    version="0.2.0",
     author="Horus View and Explore B.V.",
     author_email="info@horus.nu",
     description="Configuration deployment for Horus devices.",
@@ -17,6 +17,7 @@ setuptools.setup(
     packages=[
         "horus_deploy",
         "horus_deploy.builtin_deploy_scripts",
+        "horus_deploy.operations",
     ],
     package_data={
         "": ["default_id_ed25519", "default_id_ed25519.pub"],
