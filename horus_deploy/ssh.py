@@ -46,9 +46,9 @@ _USER_PRIVATE_KEY_PATH = user_config_dir() / "id_ed25519"
 _USER_PUBLIC_KEY_PATH = user_config_dir() / "id_ed25519.pub"
 
 _PARAMETER_SETS = [
+    {"ssh_user": "root"},
     {"ssh_user": "root", "ssh_key": str(_USER_PRIVATE_KEY_PATH)},
     {"ssh_user": "root", "ssh_key": _DEFAULT_PRIVATE_KEY_PATH},
-    {"ssh_user": "root"},
 ]
 
 
@@ -75,6 +75,7 @@ def figure_out_ssh_parameters(address, extra_set=None):
     """
     parameter_sets = _PARAMETER_SETS
     if extra_set:
+        extra_set.setdefault("ssh_user", "root")
         parameter_sets = [extra_set] + parameter_sets
 
     params = None
@@ -88,7 +89,12 @@ def figure_out_ssh_parameters(address, extra_set=None):
             continue
 
         try:
-            client.connect(address, **_to_paramiko_kwargs(params))
+            client.connect(
+                address,
+                allow_agent=True,
+                look_for_keys=True,
+                **_to_paramiko_kwargs(params),
+            )
             client.close()
         except AuthenticationException:
             params = None
@@ -163,6 +169,9 @@ def _to_paramiko_kwargs(params):
     mapping = {
         "ssh_user": ("username", lambda v: v),
         "ssh_key": ("pkey", Ed25519Key.from_private_key_file),
+        "ssh_password": ("password", lambda v: v),
+        "ssh_key_password": ("passphrase", lambda v: v),
+        "ssh_port": ("port", lambda v: v),
     }
     kwargs = {}
 

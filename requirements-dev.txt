@@ -3,3 +3,9 @@ flake8
 pytest
 coverage
 pytest-coverage
+
+# Mypy
+mypy
+types-setuptools
+types-paramiko
+types-tabulate

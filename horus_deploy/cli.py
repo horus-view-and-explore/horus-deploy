@@ -88,7 +88,7 @@ def main(
 @click.pass_obj
 @click.option("--host", "-h", "hosts", type=str, multiple=True)
 @click.argument("parameters", type=IdentifierOrKeyValue(), nargs=-1)
-def deploy(obj, hosts, parameters):
+def run(obj, hosts, parameters):
     current_script = None
     deploy_scripts = []
     deploy_script_params = {}
@@ -286,6 +286,7 @@ def get_ssh_params_for_ip_addresses(ip_addrs, ssh_parameter_set):
             break
 
     if result is None:
+        hosts = [str(v) for v in ip_addrs]
         fatal(f"cannot find SSH parameters for: {', '.join(hosts)}")
 
     return result
