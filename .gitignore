@@ -5,3 +5,7 @@
 /htmlcov
 /pyinfra-debug.log
 __pycache__
+
+# nix artifacts
+/.direnv
+/result

@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="horus_deploy",
-    version="0.2.0",
+    version="0.4.0",
     author="Horus View and Explore B.V.",
     author_email="info@horus.nu",
     description="Configuration deployment for Horus devices.",

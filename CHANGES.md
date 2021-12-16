@@ -1,5 +1,14 @@
 # Changes
 
+## 0.4.0
+
+- Add instructions and scripts for installing horus-deploy with Nix.
+- Add `diagnostics` deploy script. Can be used to fetch diagnostics
+  from [Horus' Yocto images][horus-yocto-images].
+
+[horus-yocto-images]: https://embed.horus.nu/
+
+
 ## 0.3.0
 
 - Add `uname` deploy script. Can be used to debug connecting to hosts.
