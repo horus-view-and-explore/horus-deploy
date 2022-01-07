@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,7 @@ from pyinfra.operations import server
 
 METADATA = {
     "name": "uname",
-    "description": (
-        "Run uname -a on the target host."
-    ),
+    "description": ("Run uname -a on the target host."),
 }
 
 server.shell(

@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -33,7 +33,7 @@ def _resolve_config_path():
     path = Path(click.get_app_dir(app_name)) / "horus_deploy"
 
     if not path.exists():
-        path.mkdir(mode=0o700, parents=True)
+        path.mkdir(parents=True)
 
     return path
 

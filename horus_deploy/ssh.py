@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -18,8 +18,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import os
 import pkg_resources
+import platform
 import shutil
 import subprocess
 
@@ -30,6 +32,9 @@ from paramiko.ed25519key import Ed25519Key
 from paramiko.ssh_exception import AuthenticationException
 
 from ._config import user_config_dir
+
+
+logger = logging.getLogger(__name__)
 
 
 _DEFAULT_PRIVATE_KEY_FN = "default_id_ed25519"
@@ -61,7 +66,16 @@ def _setup_default_keys():
     for src, dst in paths:
         if not dst.exists():
             shutil.copy(src, dst)
-            os.chmod(dst, 0o600)
+            _set_permissions(dst)
+
+
+def _set_permissions(path):
+    if platform.system() == "Windows":
+        username = os.environ["USERNAME"]
+        subprocess.run(["icacls", str(path), "/inheritance:r"], check=True)
+        subprocess.run(["icacls", str(path), "/grant:r", f"{username}:(R)"], check=True)
+    else:
+        os.chmod(path, 0o600)
 
 
 _setup_default_keys()
@@ -84,8 +98,13 @@ def figure_out_ssh_parameters(address, extra_set=None):
         client = SSHClient()
         client.set_missing_host_key_policy(AutoAddPolicy)
 
+        logger.debug(f"figure_out_ssh_parameters: trying {address=} with {params=}")
+
         ssh_key = params.get("ssh_key")
         if ssh_key and not os.path.exists(ssh_key):
+            logger.debug(
+                f"figure_out_ssh_parameters: {ssh_key=} does not exist, skipping"
+            )
             continue
 
         try:
@@ -97,9 +116,14 @@ def figure_out_ssh_parameters(address, extra_set=None):
             )
             client.close()
         except AuthenticationException:
+            logger.debug(
+                f"figure_out_ssh_parameters: unable to connect to {address=} with {params=}"
+            )
             params = None
         else:
             break
+
+    logger.debug(f"figure_out_ssh_parameters: connected to {address=} with {params=}")
 
     return params
 
@@ -107,7 +131,7 @@ def figure_out_ssh_parameters(address, extra_set=None):
 def load_key_pair():
     """Load key pair from user config directory.
 
-    A new key pair is generated when no kay pair exists.
+    A new key pair is generated when no key pair exists.
 
     Returns a 2-element tuple with a private key and a public key as
     strings.
@@ -118,9 +142,17 @@ def load_key_pair():
         _USER_PUBLIC_KEY_PATH.write_text(public_key)
         os.chmod(_USER_PRIVATE_KEY_PATH, 0o600)
         os.chmod(_USER_PUBLIC_KEY_PATH, 0o644)
+        logger.debug(
+            "load_key_pair: generated key pair, located at "
+            "{_USER_PRIVATE_KEY_PATH} and {_USER_PUBLIC_KEY_PATH}"
+        )
     else:
         private_key = _USER_PRIVATE_KEY_PATH.read_text()
         public_key = _USER_PUBLIC_KEY_PATH.read_text()
+        logger.debug(
+            "load_key_pair: load key pair, located at "
+            "{_USER_PRIVATE_KEY_PATH} and {_USER_PUBLIC_KEY_PATH}"
+        )
 
     return (private_key, public_key)
 

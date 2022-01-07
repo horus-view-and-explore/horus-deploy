@@ -1,5 +1,7 @@
 *.egg-info
 .coverage
+*.sublime-*
+/build
 /dist
 /env
 /htmlcov

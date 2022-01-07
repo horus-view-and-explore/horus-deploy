@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -18,6 +18,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import dataclasses
+import json
 import re
 from contextlib import contextmanager
 from pathlib import Path
@@ -138,3 +140,14 @@ class IdentifierOrKeyValue(click.ParamType):
             self.fail(f"{key!r} is not a valid identifier", param, ctx)
 
         return (key, value)
+
+
+def json_dumps(obj):
+    return json.dumps(obj, cls=JSONEncoder)
+
+
+class JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        return super().default(obj)

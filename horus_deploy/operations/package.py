@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -37,7 +37,7 @@ def install(packages, state=None, host=None):
     """Install RPM package on target host.
 
     Paramaters:
-        packages: A list of local paths or urls to RPM packages.
+        packages: A list of local paths or URLs to RPM packages.
     """
     tmp = _tmpdir()
     kw = {"state": state, "host": host}

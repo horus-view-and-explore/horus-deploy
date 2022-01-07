@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -18,12 +18,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from pyinfra.operations import server
+from horus_deploy.operations import system
 
 METADATA = {
     "name": "Reboot device",
     "description": "Reboot device and wait until the reboot is complete.",
 }
 
-
-server.reboot()
+system.reboot()

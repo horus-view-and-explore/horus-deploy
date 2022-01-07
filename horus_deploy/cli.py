@@ -1,4 +1,4 @@
-# Copyright (C) 2021 Horus View and Explore B.V.
+# Copyright (C) 2021-2022 Horus View and Explore B.V.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -18,17 +18,26 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 import subprocess
 import sys
+import dataclasses
 from pathlib import Path
-from ipaddress import ip_address
+from typing import Dict, List
 
 import click
 from tabulate import tabulate
 
+from . import __version__
 from ._config import load_user_settings
-from .deploys import find_deploy_scripts, shorten_deploy_script_path
-from .discovery import discover_devices
+from .deploys import find_deploy_scripts
+from .host import (
+    _DEFAULT_WAIT as DEFAULT_DISCOVERY_TIMEOUT,
+    AddressType,
+    find_hosts_on_local_network,
+    Host,
+    resolve as resolve_host,
+)
 from .ssh import figure_out_ssh_parameters, interactive_ssh_shell
 from .utils import (
     AttrDict,
@@ -36,10 +45,12 @@ from .utils import (
     multi_choice_prompt,
     single_choice_prompt,
     temp_python_files,
+    json_dumps,
 )
 
 
-DEFAULT_DISCOVERY_TIMEOUT = 2.0
+logging.basicConfig(level=logging.WARNING)
+
 
 _ERR = click.style("Error:", fg="bright_red", bold=True)
 
@@ -60,8 +71,18 @@ _ERR = click.style("Error:", fg="bright_red", bold=True)
     type=click.Path(exists=True, file_okay=True, resolve_path=True, path_type=Path),
 )
 @click.option("--ssh-key-password", type=str)
+@click.option("--verbose", default=False, is_flag=True)
+@click.option("--pyinfra-verbose", default=False, is_flag=True)
 def main(
-    ctx, discovery_timeout, ssh_user, ssh_password, ssh_port, ssh_key, ssh_key_password
+    ctx,
+    discovery_timeout,
+    ssh_user,
+    ssh_password,
+    ssh_port,
+    ssh_key,
+    ssh_key_password,
+    verbose,
+    pyinfra_verbose,
 ):
     ctx.ensure_object(AttrDict)
     ctx.obj.settings = load_user_settings()
@@ -82,11 +103,14 @@ def main(
         if not ssh_key:
             fatal("--ssh-key is required when using --ssh-key-password")
         ctx.obj.ssh_parameter_set["ssh_key_password"] = ssh_key_password
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    ctx.obj.pyinfra_verbose = pyinfra_verbose
 
 
 @main.command(help="Run one or more deploy scripts.")
 @click.pass_obj
-@click.option("--host", "-h", "hosts", type=str, multiple=True)
+@click.option("--host", "-h", "hosts", type=Host, multiple=True)
 @click.argument("parameters", type=IdentifierOrKeyValue(), nargs=-1)
 def run(obj, hosts, parameters):
     current_script = None
@@ -103,11 +127,10 @@ def run(obj, hosts, parameters):
             try:
                 deploy_script_params[current_script][key] = value
             except KeyError:
-                fatal("a paramater cannot occur before a deploy script")
+                fatal("a parameter cannot occur before a deploy script")
 
-    # Get hosts and their SSH parameters.
     if not hosts:
-        hosts = discover_and_select_devices(obj.discovery_timeout)
+        hosts = discover_and_select_hosts(obj.discovery_timeout)
     hosts = get_ssh_params_for_hosts(hosts, obj.ssh_parameter_set)
 
     # Find deploy scripts.
@@ -124,16 +147,13 @@ def run(obj, hosts, parameters):
 
         with temp_python_files("inventory.py") as (fd,):
             write_inventory(fd, hosts, data)
-            subprocess.call(
-                [
-                    "pyinfra",
-                    "--fail-percent",
-                    "0",
-                    "-vvv",
-                    fd.name,
-                    script["path"],
-                ]
-            )
+
+            cmd = ["pyinfra", "--fail-percent", "0"]
+            if obj.pyinfra_verbose:
+                cmd.append("-vvv")
+            cmd += [fd.name, script["path"]]
+
+            subprocess.call(cmd)
 
 
 def _find_deploy_scripts(names):
@@ -146,29 +166,42 @@ def _find_deploy_scripts(names):
     return (deploy_scripts, not_found)
 
 
-@main.command(help="Discover devices on the local network.")
+@main.command(help="Discover hosts on the local network.")
 @click.pass_obj
-def discover(obj):
-    list_devices(discover_devices(obj.discovery_timeout))
+@click.option("--json", "output_json", default=False, is_flag=True)
+def discover(obj, output_json):
+    hosts = find_hosts_on_local_network(obj.discovery_timeout)
+    if output_json:
+        click.echo(json_dumps(hosts))
+    else:
+        list_hosts(hosts)
 
 
 @main.command(help="List all builtin and user deploy scripts.")
 @click.argument("deploy_scripts", type=click.Path(path_type=Path), nargs=-1)
-def info(deploy_scripts):
+@click.option(
+    "--details",
+    default=False,
+    is_flag=True,
+    help="Show name, description and paramaters for each deploy script.",
+)
+def info(deploy_scripts, details):
     deploy_scripts = find_deploy_scripts(deploy_scripts)
 
     for script in deploy_scripts:
+        script_id = f"{script['id']} [{script['type'].name.lower()}]"
+
+        if not details:
+            click.echo(script_id)
+            continue
+
         view = []
 
-        view.append(("ID:", script["id"]))
+        view.append(("ID:", script_id))
         if v := script.get("name"):
             view.append(("Name:", v))
         if v := script.get("description"):
             view.append(("Description:", v))
-
-        view.append(
-            ("Path:", click.format_filename(shorten_deploy_script_path(script["path"])))
-        )
 
         if v := script.get("parameters"):
             view.append(
@@ -187,59 +220,91 @@ def info(deploy_scripts):
 
 @main.command(help="Interactive SSH shell.")
 @click.pass_obj
-@click.option("--host", "-h", "host", type=str)
+@click.option("--host", "-h", "host", type=Host)
 def shell(obj, host):
-    # Get hosts and their SSH parameters.
-    if host:
-        hosts = [host]
+    if not host:
+        host = discover_and_select_host(obj.discovery_timeout)
+        if not host:
+            fatal("cannot find host on network")
+    host = get_ssh_params_for_host(host, obj.ssh_parameter_set)
+    interactive_ssh_shell(host.ssh_host, host.ssh_params)
+
+
+@main.command(help="Show version.")
+def version():
+    click.echo(__version__)
+
+
+@main.command(help="Resolve a hostname.")
+@click.argument("host", type=Host, nargs=1)
+@click.option("--json", "output_json", default=False, is_flag=True)
+def resolve(host: Host, output_json: bool):
+    new_host = resolve_host(host)
+    if new_host:
+        data = {"results": [a.s for a in new_host.resolved_addrs]}
     else:
-        hosts = discover_and_select_devices(obj.discovery_timeout, multiple=False)
-    hosts = get_ssh_params_for_hosts(hosts, obj.ssh_parameter_set)
+        data = {"warning": [f"cannot resolve {host.addr.s}"]}
 
-    # Start shell.
-    interactive_ssh_shell(**hosts[0])
+    if output_json:
+        click.echo(json_dumps(data))
+    else:
+        if results := data.get("results"):
+            for a in results:
+                click.echo(a)
+        elif warning := data.get("warning"):
+            for w in warning:
+                click.echo(f"WARNING: {w}")
+        else:
+            raise ValueError(f"unexpected data: {data!r}")
 
 
-def discover_and_select_devices(discovery_timeout, multiple=True):
-    # Scan network for devices.
-    click.echo("--> Scanning network for devices...")
-    devices = discover_devices(discovery_timeout)
-    if not devices:
-        fatal("no devices found")
+def discover_and_select_hosts(discovery_timeout, *, multiple=True):
+    # Scan network for hosts.
+    click.echo("--> Scanning network for hosts...")
+    hosts = find_hosts_on_local_network(discovery_timeout)
+    if not hosts:
+        fatal("no hosts found")
 
-    # List and select discovered devices.
+    # List and select discovered hosts.
     click.echo("")
-    list_devices(devices, showindex=True)
+    list_hosts(hosts, showindex=True)
     click.echo("")
     if multiple:
-        devices = multi_choice_prompt(
-            "    Select multiple devices (comma/space separated)", devices
+        hosts = multi_choice_prompt(
+            "    Select multiple hosts (comma/space separated)", hosts
         )
     else:
-        devices = [single_choice_prompt("    Select a device", devices)]
+        hosts = [single_choice_prompt("    Select a device", hosts)]
     click.echo("")
-
-    hosts = [d.addresses for d in devices]
 
     return hosts
 
 
-def list_devices(devices, showindex=False):
-    """List devices in a pretty table."""
-    headers = ("Server", "Name", "IP addresses", "Hardware ID")
+def discover_and_select_host(discovery_timeout):
+    hosts = discover_and_select_hosts(discovery_timeout, multiple=False)
+    if not hosts:
+        return
+    return hosts[0]
+
+
+def list_hosts(hosts, showindex=False):
+    """List hosts in a table."""
+    headers = ["Server", "IPv4", "IPv6", "Hardware ID"]
     rows = [
         (
-            d.server,
-            d.name,
-            ", ".join([str(a) for a in d.addresses]),
-            d.hardware_id or "N/A",
+            h.addr.s,
+            " ".join([str(a.s) for a in h.resolved_addrs if a.t == AddressType.IPv4])
+            or "N/A",
+            " ".join([str(a.s) for a in h.resolved_addrs if a.t == AddressType.IPv6])
+            or "N/A",
+            h.props["hardware_id"] or "N/A",
         )
-        for d in devices
+        for h in hosts
     ]
 
     kwargs = {}
     if showindex:
-        kwargs["showindex"] = range(1, len(devices) + 1)
+        kwargs["showindex"] = range(1, len(hosts) + 1)
 
     click.echo(tabulate(rows, headers=headers, **kwargs))
 
@@ -247,49 +312,46 @@ def list_devices(devices, showindex=False):
 def write_inventory(fd, hosts, host_data):
     fd.write("hosts = [\n")
     for host in hosts:
-        data = {**host.ssh_params, **host_data}
+        data = {
+            **host.ssh_params,
+            **host_data,
+        }
+        # If we're using a zeroconf server name to reference a host,
+        # we'll pass it to pyinfra so we can use it in deploy scripts.
+        # See horus_deploy.operations.system.reboot for an example.
+        if host.addr.t == AddressType.ZEROCONF_SERVER_NAME:
+            data["zeroconf_server_name"] = host.addr.s
         data = {k: str(v) for k, v in data.items()}
-        fd.write(f"    ({str(host.address)!r}, {data!r}),\n")
+        fd.write(f"    ({str(host.ssh_host)!r}, {data!r}),\n")
     fd.write("]\n")
     fd.flush()
 
 
-def get_ssh_params_for_hosts(hosts, ssh_parameter_set):
-    new_hosts = []
-
-    for host in hosts:
-        if isinstance(host, str):
-            host = [host]
-        result = get_ssh_params_for_ip_addresses(host, ssh_parameter_set)
-        new_hosts.append(result)
-
-    return new_hosts
+def get_ssh_params_for_hosts(hosts: List[Host], ssh_parameter_set: Dict[str, str]):
+    return [get_ssh_params_for_host(h, ssh_parameter_set) for h in hosts]
 
 
-def get_ssh_params_for_ip_addresses(ip_addrs, ssh_parameter_set):
-    # Sort IP list to IPv4 addresses are first.
-    ip_addrs = sorted(
-        [ip_address(i) for i in ip_addrs],
-        key=lambda ip: ip.version,
-    )
+def get_ssh_params_for_host(host: Host, ssh_parameter_set: Dict[str, str]):
+    resolved_host = resolve_host(host)
 
-    result = None
+    if not resolved_host:
+        fatal(f"cannot resolve address for host {host.addr.s}")
+        return
 
-    # Try to connect to IPs until it works!
-    for ip_addr in ip_addrs:
-        ssh_params = figure_out_ssh_parameters(str(ip_addr), ssh_parameter_set)
-        if ssh_params is not None:
-            result = AttrDict(
-                address=ip_addr,
+    for addr in resolved_host.resolved_addrs:
+        ssh_params = figure_out_ssh_parameters(addr.s, ssh_parameter_set)
+        if ssh_params:
+            resolved_host = dataclasses.replace(
+                resolved_host,
+                ssh_host=addr.s,
                 ssh_params=ssh_params,
             )
             break
 
-    if result is None:
-        hosts = [str(v) for v in ip_addrs]
-        fatal(f"cannot find SSH parameters for: {', '.join(hosts)}")
+    if not resolved_host.ssh_params:
+        fatal(f"cannot find SSH parameters for {resolved_host.addr.s}")
 
-    return result
+    return resolved_host
 
 
 def fatal(message):
