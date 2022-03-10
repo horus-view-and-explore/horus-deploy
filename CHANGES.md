@@ -1,5 +1,12 @@
 # Changes
 
+## 0.6.1
+
+- Fix command argument escaping in `system.set_time` operation.
+- `system.set_time` now accepts `datetime.datetime`, `datetime.date`, 
+  and `datetime.time` besides a string.
+
+
 ## 0.6.0
 
 - Add host filters for `run`, `discover`, and `shell` subcommands.

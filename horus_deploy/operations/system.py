@@ -21,7 +21,7 @@
 
 import json
 import subprocess
-from datetime import datetime
+from datetime import datetime, date, time
 from time import sleep
 from typing import List
 from urllib.parse import urlparse
@@ -175,22 +175,31 @@ def _resolve(name: str) -> List[str]:
 
 @operation
 def set_time(date_and_or_time, state=None, host=None):
-    allowed_formats = (
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d",
-        "%H:%M:%S",
-    )
+    if isinstance(date_and_or_time, str):
+        allowed_formats = (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d",
+            "%H:%M:%S",
+        )
 
-    for fmt in allowed_formats:
-        try:
-            datetime.strptime(date_and_or_time, fmt)
-            break
-        except ValueError:
-            pass
+        for fmt in allowed_formats:
+            try:
+                datetime.strptime(date_and_or_time, fmt)
+                break
+            except ValueError:
+                pass
+        else:
+            raise OperationError("date time format is not correct")
+    elif isinstance(date_and_or_time, datetime):
+        date_and_or_time = date_and_or_time.strftime("%Y-%m-%d %H:%M:%S")
+    elif isinstance(date_and_or_time, date):
+        date_and_or_time = date_and_or_time.strftime("%Y-%m-%d")
+    elif isinstance(date_and_or_time, time):
+        date_and_or_time = date_and_or_time.strftime("%H:%M:%S")
     else:
-        raise OperationError("date time format is not correct")
+        raise TypeError("only str, datetime, date, and time types allowed")
 
-    yield StringCommand("timedatectl", "set-time", date_and_or_time)
+    yield StringCommand("timedatectl", "set-time", f"'{date_and_or_time}'")
 
 
 @operation
