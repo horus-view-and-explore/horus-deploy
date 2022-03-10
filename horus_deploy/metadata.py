@@ -19,12 +19,13 @@
 # SOFTWARE.
 
 import ast
+from typing import Dict, List, Any
 
 
 _VARIABLE_NAME = "METADATA"
 
 
-def extract_metadata(source_code):
+def extract_metadata(source_code: str) -> Dict:
     """Extract metadata from deploy script.
 
     I.e. the value of a top-level variable named METADATA is extracted
@@ -47,7 +48,7 @@ def extract_metadata(source_code):
     return metadata
 
 
-def _get_names_from_targets(targets):
+def _get_names_from_targets(targets: List[Any]) -> List[str]:
     names = []
 
     for target in targets:

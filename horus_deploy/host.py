@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from ipaddress import ip_address
 from typing import Any, Dict, List, Optional, Union
 
-from zeroconf import ServiceBrowser, Zeroconf
+from zeroconf import ServiceBrowser, Zeroconf, ServiceInfo, ServiceListener
 
 
 _LOCAL = ".local."
@@ -58,11 +58,21 @@ class Host:
     ssh_host: str = field(default_factory=str)
     ssh_params: Dict[str, str] = field(default_factory=dict)
 
-    def __post_init__(self):
-        self.addr = self._cast_addr(self.addr)
-        self.resolved_addrs = [self._cast_addr(a) for a in self.resolved_addrs]
+    @classmethod
+    def from_str(
+        cls,
+        addr: str,
+        resolved_addrs: Optional[List[str]] = None,
+        **kwargs,
+    ) -> "Host":
+        new_addr = cls._cast_addr(addr)
+        if resolved_addrs is None:
+            resolved_addrs = []
+        new_resolved_addrs = [cls._cast_addr(a) for a in resolved_addrs]
+        return cls(new_addr, new_resolved_addrs, **kwargs)
 
-    def _cast_addr(self, addr: Union[str, Address]) -> Address:
+    @staticmethod
+    def _cast_addr(addr: Union[str, Address]) -> Address:
         if not isinstance(addr, Address):
             addr = Address(addr)
         return addr
@@ -103,42 +113,51 @@ def resolve(host: Host) -> Optional[Host]:
     return new_host
 
 
-def find_hosts_on_local_network(wait_for=_DEFAULT_WAIT):
+def find_hosts_on_local_network(wait_for: float = _DEFAULT_WAIT) -> List[Host]:
     """Discover hosts on the local network using Zeroconf."""
-    zeroconf = Zeroconf()
-    listener = _Listener()
-    ServiceBrowser(zeroconf, _TYPE, listener)
+    zc = Zeroconf()
+    listener = _ServiceListener()
+    ServiceBrowser(zc, _TYPE, listener=listener)
     time.sleep(wait_for)
-    zeroconf.close()
+    zc.close()
 
+    # Get hosts from listener and sort by zeroconf server name.
     hosts = listener.hosts()
     hosts.sort(key=lambda h: h.addr.s)
 
     return hosts
 
 
-class _Listener:
+class _ServiceListener(ServiceListener):
     def __init__(self):
         self._hosts: Dict[str, Host] = {}
 
-    def remove_service(self, zeroconf, type, name):
-        info = zeroconf.get_service_info(type, name)
-        hwid = self._get_hwid(info)
-        try:
-            del self._hosts[hwid]
-        except KeyError:
-            del self._hosts[name]
+    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        info = zc.get_service_info(type_, name)
 
-    def add_service(self, zeroconf, type, name):
-        info = zeroconf.get_service_info(type, name)
+        if info is not None:
+            hwid = self._get_hwid(info)
+            if hwid is not None:
+                try:
+                    del self._hosts[hwid]
+                    return
+                except KeyError:
+                    pass
 
+        del self._hosts[name]
+
+    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        info = zc.get_service_info(type_, name)
+
+        if info is None:
+            return
         if not info.properties[b"urn"].startswith(_URN_PREFIX):
             return
 
         hwid = self._get_hwid(info)
         key = hwid or name
 
-        self._hosts[key] = Host(
+        self._hosts[key] = Host.from_str(
             addr=info.server,
             resolved_addrs=info.parsed_addresses(),
             props={
@@ -147,12 +166,14 @@ class _Listener:
             },
         )
 
-    update_service = add_service
+    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        self.add_service(zc, type_, name)
 
-    def _get_hwid(self, info):
-        if (hwid := info.properties.get(b"hardware_id")) is not None:
+    def _get_hwid(self, info: ServiceInfo) -> Optional[str]:
+        hwid = info.properties.get(b"hardware_id")
+        if hwid is not None:
             hwid = hwid.decode("utf-8")
         return hwid
 
-    def hosts(self):
+    def hosts(self) -> List[Host]:
         return list(self._hosts.values())

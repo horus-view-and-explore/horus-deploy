@@ -18,27 +18,30 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
-from datetime import datetime
-from pathlib import Path
+from pyinfra import host
+from pyinfra.api import OperationError
 
-from pyinfra.operations import server, files
+from horus_deploy.operations import system
 
 METADATA = {
-    "name": "Diagnostics",
-    "description": (
-        "Gather diagnostics from host and download to current "
-        "directory as diagnostics.tar.gz."
-    ),
+    "name": "timedate",
+    "description": "Set the date, time, time zone, and enable/disable NTP.",
+    "parameters": {
+        "dt": (
+            "Set date and/or time. The date format is YYYY-MM-DD and the "
+            "time format is HH:MM:SS. To set the date/time NTP must be "
+            "disabled."
+        ),
+        "ntp": "Enable or disable NTP (automatic time synchronization).",
+        "tz": "An IANA time zone identifier, e.g. Europe/Amsterdam.",
+    },
 }
 
-DATETIME = datetime.now().strftime("%Y%m%d%H%M%S")
-SOURCE = "/data/diagnostics.tar.gz"
-TARGET = Path(os.getcwd()) / f"diagnostics-{DATETIME}.tar.gz"
-
-server.shell(["create_diagnostics"])
-
-files.get(
-    src=SOURCE,
-    dest=TARGET,
-)
+if not (host.data.dt or host.data.ntp or host.data.tz):
+    raise OperationError("no parameters given")
+if host.data.ntp:
+    system.set_ntp(host.data.ntp == "True")
+if host.data.dt:
+    system.set_time(host.data.dt)
+if host.data.tz:
+    system.set_time_zone(host.data.tz)

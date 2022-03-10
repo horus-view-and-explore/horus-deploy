@@ -24,6 +24,7 @@ import re
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Union, Callable, List
 
 import click
 
@@ -96,13 +97,13 @@ def single_choice_prompt(text, menu):
     return item
 
 
-def interpret_value(v):
+def interpret_value(v: str) -> Union[bool, int, float, str]:
     def to_bool(v):
         if v in ("true", "false"):
             return v == "true"
         raise ValueError
 
-    types = [
+    types: List[Callable] = [
         to_bool,
         int,
         float,

@@ -1,5 +1,26 @@
 # Changes
 
+## 0.6.0
+
+- Add host filters for `run`, `discover`, and `shell` subcommands.
+  See "Host filters" in `docs/usage.md` for instructions.
+- `shell` subcommand supports multiple `-h` flags. A menu is shown when
+  multiple hosts arew provided.
+- `discovery` subcommand supports multiple `-h` flags.
+- `discovery` subcommand's `--json` option has been renamed to
+  `-j/--output-json`.
+- `resolve` subcommand's `--json` option has been renamed to
+  `-j/--output-json`.
+- `diagnostics` deploy script now include the date and time in filename
+  of the diagnostics file.
+- Add `--dry-run` option to `run` subcommand. This enables dry mode for
+  pyinfra.
+- Add `set_time`, `set_ntp`, and `set_time_zone` operations to the
+  `system` module. The builtin `timedate` deploy script uses these
+  operations.
+- Type hints added to `horus_deploy.host`.
+
+
 ## 0.5.0
 
 - `--verbose` flag to enable debug logging.

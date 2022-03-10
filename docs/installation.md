@@ -21,11 +21,15 @@ Follow [Using Python on Unix platforms][pyunix].
    python -c 'import site; print(site.USER_BASE + \"\\Python39\\Scripts\")'
    ```
 
-4. Generate an default SSH key if there isn't one already,
-   e.g. `ssh-keygen -t ed25519`.
-
 See [Excursus: Setting environment variables][pywinenv] for instructions
 on setting environment variables.
+
+
+### SSH
+
+This applies to both Linux and Windows.
+
+Generate an default SSH key if there isn't one already, e.g. `ssh-keygen -t ed25519`.
 
 
 ## Install horus-deploy

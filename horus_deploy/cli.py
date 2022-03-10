@@ -18,12 +18,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import dataclasses
+import fnmatch
 import logging
+import re
 import subprocess
 import sys
-import dataclasses
+from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import click
 from tabulate import tabulate
@@ -53,6 +56,17 @@ logging.basicConfig(level=logging.WARNING)
 
 
 _ERR = click.style("Error:", fg="bright_red", bold=True)
+
+_RE_IF_GLOB = re.compile(r"\[[^\]]+\]|\*|\?", re.ASCII)
+
+
+def click_hosts_option(f):
+    return click.option(
+        "--host", "-h", "hosts",
+        type=Host.from_str,
+        multiple=True,
+        metavar="<address>",
+    )(f)
 
 
 @click.group()
@@ -110,27 +124,19 @@ def main(
 
 @main.command(help="Run one or more deploy scripts.")
 @click.pass_obj
-@click.option("--host", "-h", "hosts", type=Host, multiple=True)
+@click_hosts_option
+@click.option("-y", "--dont-ask", default=False, is_flag=True)
+@click.option("-x", "--enable-regex", default=False, is_flag=True)
+@click.option("--dry-run", default=False, is_flag=True)
 @click.argument("parameters", type=IdentifierOrKeyValue(), nargs=-1)
-def run(obj, hosts, parameters):
-    current_script = None
-    deploy_scripts = []
-    deploy_script_params = {}
-
+def run(obj, hosts, dont_ask, enable_regex, dry_run, parameters):
     # Collect scripts and parameters.
-    for key, value in parameters:
-        if value is None:
-            deploy_scripts.append(key)
-            current_script = key
-            deploy_script_params[current_script] = {}
-        else:
-            try:
-                deploy_script_params[current_script][key] = value
-            except KeyError:
-                fatal("a parameter cannot occur before a deploy script")
+    deploy_scripts, deploy_script_params = get_scripts_and_params(parameters)
 
-    if not hosts:
-        hosts = discover_and_select_hosts(obj.discovery_timeout)
+    hosts, is_discovered = get_hosts(hosts, obj.discovery_timeout, enable_regex)
+    if not dont_ask and is_discovered:
+        hosts = select_hosts(hosts)
+
     hosts = get_ssh_params_for_hosts(hosts, obj.ssh_parameter_set)
 
     # Find deploy scripts.
@@ -151,9 +157,30 @@ def run(obj, hosts, parameters):
             cmd = ["pyinfra", "--fail-percent", "0"]
             if obj.pyinfra_verbose:
                 cmd.append("-vvv")
+            if dry_run:
+                cmd.append("--dry")
             cmd += [fd.name, script["path"]]
 
             subprocess.call(cmd)
+
+
+def get_scripts_and_params(parameters):
+    current_script = None
+    scripts = []
+    script_params = {}
+
+    for key, value in parameters:
+        if value is None:
+            scripts.append(key)
+            current_script = key
+            script_params[current_script] = {}
+        else:
+            try:
+                script_params[current_script][key] = value
+            except KeyError:
+                fatal("a parameter cannot occur before a deploy script")
+
+    return (scripts, script_params)
 
 
 def _find_deploy_scripts(names):
@@ -168,9 +195,11 @@ def _find_deploy_scripts(names):
 
 @main.command(help="Discover hosts on the local network.")
 @click.pass_obj
-@click.option("--json", "output_json", default=False, is_flag=True)
-def discover(obj, output_json):
-    hosts = find_hosts_on_local_network(obj.discovery_timeout)
+@click_hosts_option
+@click.option("-x", "--enable-regex", default=False, is_flag=True)
+@click.option("-j", "--output-json", default=False, is_flag=True)
+def discover(obj, hosts, enable_regex, output_json):
+    hosts, _ = get_hosts(hosts, obj.discovery_timeout, enable_regex)
     if output_json:
         click.echo(json_dumps(hosts))
     else:
@@ -220,12 +249,14 @@ def info(deploy_scripts, details):
 
 @main.command(help="Interactive SSH shell.")
 @click.pass_obj
-@click.option("--host", "-h", "host", type=Host)
-def shell(obj, host):
-    if not host:
-        host = discover_and_select_host(obj.discovery_timeout)
-        if not host:
-            fatal("cannot find host on network")
+@click_hosts_option
+@click.option("-x", "--enable-regex", default=False, is_flag=True)
+def shell(obj, hosts, enable_regex):
+    hosts, is_discovered = get_hosts(hosts, obj.discovery_timeout, enable_regex)
+    if is_discovered or len(hosts) > 1:
+        host = select_host(hosts)
+    else:
+        host = hosts[0]
     host = get_ssh_params_for_host(host, obj.ssh_parameter_set)
     interactive_ssh_shell(host.ssh_host, host.ssh_params)
 
@@ -235,9 +266,9 @@ def version():
     click.echo(__version__)
 
 
-@main.command(help="Resolve a hostname.")
+@main.command(help="Resolve a (zeroconf) hostname.")
 @click.argument("host", type=Host, nargs=1)
-@click.option("--json", "output_json", default=False, is_flag=True)
+@click.option("-j", "--output-json", default=False, is_flag=True)
 def resolve(host: Host, output_json: bool):
     new_host = resolve_host(host)
     if new_host:
@@ -258,49 +289,23 @@ def resolve(host: Host, output_json: bool):
             raise ValueError(f"unexpected data: {data!r}")
 
 
-def discover_and_select_hosts(discovery_timeout, *, multiple=True):
-    # Scan network for hosts.
-    click.echo("--> Scanning network for hosts...")
-    hosts = find_hosts_on_local_network(discovery_timeout)
-    if not hosts:
-        fatal("no hosts found")
-
-    # List and select discovered hosts.
-    click.echo("")
-    list_hosts(hosts, showindex=True)
-    click.echo("")
-    if multiple:
-        hosts = multi_choice_prompt(
-            "    Select multiple hosts (comma/space separated)", hosts
-        )
-    else:
-        hosts = [single_choice_prompt("    Select a device", hosts)]
-    click.echo("")
-
-    return hosts
-
-
-def discover_and_select_host(discovery_timeout):
-    hosts = discover_and_select_hosts(discovery_timeout, multiple=False)
-    if not hosts:
-        return
-    return hosts[0]
-
-
 def list_hosts(hosts, showindex=False):
     """List hosts in a table."""
     headers = ["Server", "IPv4", "IPv6", "Hardware ID"]
-    rows = [
-        (
-            h.addr.s,
-            " ".join([str(a.s) for a in h.resolved_addrs if a.t == AddressType.IPv4])
-            or "N/A",
-            " ".join([str(a.s) for a in h.resolved_addrs if a.t == AddressType.IPv6])
-            or "N/A",
-            h.props["hardware_id"] or "N/A",
-        )
-        for h in hosts
-    ]
+    rows = []
+
+    for h in hosts:
+        addrs = defaultdict(list)
+        addrs[h.addr.t].append(h.addr.s)
+        for a in h.resolved_addrs:
+            addrs[a.t].append(a.s)
+
+        rows.append((
+            " ".join(addrs[AddressType.ZEROCONF_SERVER_NAME]) or "N/A",
+            " ".join(addrs[AddressType.IPv4]) or "N/A",
+            " ".join(addrs[AddressType.IPv6]) or "N/A",
+            h.props.get("hardware_id") or "N/A",
+        ))
 
     kwargs = {}
     if showindex:
@@ -354,6 +359,66 @@ def get_ssh_params_for_host(host: Host, ssh_parameter_set: Dict[str, str]):
     return resolved_host
 
 
-def fatal(message):
+def fatal(message: str):
     click.echo(f"--> {_ERR} {message}")
     sys.exit(1)
+
+
+def select_hosts(hosts: List[Host]) -> List[Host]:
+    click.echo("")
+    list_hosts(hosts, showindex=True)
+    click.echo("")
+    hosts = multi_choice_prompt(
+        "    Select multiple hosts (comma/space separated)", hosts
+    )
+    click.echo("")
+    return hosts
+
+
+def select_host(hosts: List[Host]) -> Host:
+    click.echo("")
+    list_hosts(hosts, showindex=True)
+    click.echo("")
+    host = single_choice_prompt("    Select a device", hosts)
+    click.echo("")
+    return host
+
+
+def get_hosts(
+    hosts: List[Host],
+    discovery_timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
+    enable_regex: bool = False,
+) -> Tuple[List[Host], bool]:
+    filters = []
+
+    if enable_regex:
+        try:
+            filters = [re.compile(h.addr.s) for h in hosts]
+        except re.error as e:
+            fatal(f"regular expression {e.pattern!r} is incorrect: {e}")
+    elif is_host_glob_filter(hosts):
+        filters = [re.compile(fnmatch.translate(h.addr.s)) for h in hosts]
+    elif hosts:
+        return (hosts, False)
+
+    hosts = find_hosts_on_local_network(discovery_timeout)
+
+    if filters:
+        hosts = [
+            h
+            for h in hosts
+            if any(
+                f.match(h.addr.s)
+                or any(f.match(ra.s) for ra in h.resolved_addrs)
+                for f in filters
+            )
+        ]
+
+    if not hosts:
+        fatal("no hosts found")
+
+    return (hosts, True)
+
+
+def is_host_glob_filter(hosts: List[Host]) -> bool:
+    return any(_RE_IF_GLOB.search(h.addr.s) for h in hosts)

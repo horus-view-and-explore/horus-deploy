@@ -21,6 +21,7 @@
 
 import json
 import subprocess
+from datetime import datetime
 from time import sleep
 from typing import List
 from urllib.parse import urlparse
@@ -152,7 +153,10 @@ def _resolve(name: str) -> List[str]:
     # Run the resolver in a different process, because the gevent is used
     # internally in pyinfra break zeroconf. `zeroconf.get_service_info()`
     # just returns `None` all the time.
-    p = subprocess.run(["horus-deploy", "resolve", "--json", name], capture_output=True)
+    p = subprocess.run(
+        ["horus-deploy", "resolve", "--output-json", name],
+        capture_output=True,
+    )
 
     if p.returncode != 0:
         raise OperationError(f"resolve failed: {p.stdout=} {p.stderr=}")
@@ -167,3 +171,34 @@ def _resolve(name: str) -> List[str]:
         data = results
 
     return data
+
+
+@operation
+def set_time(date_and_or_time, state=None, host=None):
+    allowed_formats = (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+        "%H:%M:%S",
+    )
+
+    for fmt in allowed_formats:
+        try:
+            datetime.strptime(date_and_or_time, fmt)
+            break
+        except ValueError:
+            pass
+    else:
+        raise OperationError("date time format is not correct")
+
+    yield StringCommand("timedatectl", "set-time", date_and_or_time)
+
+
+@operation
+def set_ntp(enable: bool, state=None, host=None):
+    toggle = "true" if enable else "false"
+    yield StringCommand("timedatectl", "set-ntp", toggle)
+
+
+@operation
+def set_time_zone(time_zone: str, state=None, host=None):
+    yield StringCommand("timedatectl", "set-timezone", time_zone)
