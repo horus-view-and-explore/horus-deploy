@@ -267,7 +267,7 @@ def version():
 
 
 @main.command(help="Resolve a (zeroconf) hostname.")
-@click.argument("host", type=Host, nargs=1)
+@click.argument("host", type=Host.from_str, nargs=1)
 @click.option("-j", "--output-json", default=False, is_flag=True)
 def resolve(host: Host, output_json: bool):
     new_host = resolve_host(host)

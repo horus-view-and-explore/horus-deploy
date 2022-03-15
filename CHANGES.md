@@ -1,5 +1,10 @@
 # Changes
 
+## 0.6.2
+
+- `resolve` subcommand was broken, the given hosts where not resolved.
+
+
 ## 0.6.1
 
 - Fix command argument escaping in `system.set_time` operation.
