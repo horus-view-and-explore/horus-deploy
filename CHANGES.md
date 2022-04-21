@@ -1,5 +1,10 @@
 # Changes
 
+## 0.6.3
+
+- Remove link to `docs` in README.md. This won't work on PyPi.
+
+
 ## 0.6.2
 
 - `resolve` subcommand was broken, the given hosts where not resolved.

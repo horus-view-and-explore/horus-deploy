@@ -9,6 +9,6 @@ functionality pyinfra provides, horus-deploy provides the following:
 - Automatic SSH parameter selection for connecting to devices.
 - Operations and deploy scripts for common actions.
 
-See [the documentation](./docs/README.md) for more information.
+See `./docs/README.md` for more information.
 
 [pyinfra]: https://pyinfra.com/
