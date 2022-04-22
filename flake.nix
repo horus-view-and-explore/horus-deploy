@@ -9,6 +9,9 @@
       out = system:
         let
           pkgs = nixpkgs.legacyPackages."${system}";
+          pyinfra173 = (import ./nix/pyinfra.nix {
+            inherit pkgs;
+          });
           horus-deploy = with pkgs; python3Packages.buildPythonApplication
             {
               name = "horus-deploy";
@@ -19,7 +22,7 @@
                 zeroconf
                 tabulate
                 click
-                pyinfra
+                pyinfra173
               ];
 
               checkInputs = with python39Packages; [
@@ -29,9 +32,6 @@
                 flake8
               ];
             };
-          pyinfra = (import ./nix/pyinfra.nix {
-            inherit pkgs;
-          });
         in
         {
 

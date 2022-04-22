@@ -1,5 +1,10 @@
 # Changes
 
+## 0.6.5
+
+- Pin PyInfra to 1.7.3 in Nix flake version 2.0 breaks compatibility.
+
+
 ## 0.6.4
 
 - Pin PyInfra to 1.7.3 as version 2.0 breaks compatibility.

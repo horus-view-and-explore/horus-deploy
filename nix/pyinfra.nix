@@ -1,11 +1,11 @@
 { pkgs }:
 with pkgs; python3Packages.buildPythonApplication rec {
   pname = "pyinfra";
-  version = "1.5";
+  version = "1.7.3";
 
   src = python3Packages.fetchPypi {
     inherit pname version;
-    sha256 = "sha256-MeKMo5J9r7gYQFvwBhum6MmM7zBD8VVpKVk9rrLJRlI=";
+    sha256 = "sha256-MpfVbygls7MDYBJ8/d0/OnU2bfZZgHhQdAbng0AC5PE=";
   };
 
   propagatedBuildInputs = with python3Packages; [
